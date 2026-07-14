@@ -30,7 +30,7 @@ public class MainThread extends JFrame implements KeyListener {
     public static int frameInterval = 33;
 
     // CPU 睡眠时间, 数字越小说明运算效率越高
-    public static int sleepTime;
+    public static int sleepTime, averageSleepTime;
 
     // 刷新率及计算刷新率所用到的一些辅助参数
     public static int framePerSecond;
@@ -72,37 +72,32 @@ public class MainThread extends JFrame implements KeyListener {
         // 测试一个正方体
         float l = 0.5f;
         Vector3D[] vertices = {
-                new Vector3D(-l, -l, -l + 2.5f),
-                new Vector3D(l, -l, -l + 2.5f),
-                new Vector3D(l, l, -l + 2.5f),
-                new Vector3D(-l, l, -l + 2.5f),
-                new Vector3D(-l, -l, l + 2.5f),
-                new Vector3D(l, -l, l + 2.5f),
-                new Vector3D(l, l, l + 2.5f),
-                new Vector3D(-l, l, l + 2.5f)
+                new Vector3D(-l, -l, -l),
+                new Vector3D(l, -l, -l),
+                new Vector3D(l, l, -l),
+                new Vector3D(-l, l, -l),
+                new Vector3D(-l, -l, l),
+                new Vector3D(l, -l, l),
+                new Vector3D(l, l, l),
+                new Vector3D(-l, l, l)
         };
+        //将正方体向前移动3.5f
+        Vector3D localTranslation = new Vector3D(0, 0, 4f);
         int[] indices = {
-                0, 1, 2, 2, 3, 0,        // Front face
-                1, 5, 6, 6, 2, 1,        // Right face
-                5, 4, 7, 7, 6, 5,        // Back face
-                4, 0, 3, 3, 7, 4,        // Left face
-                3, 2, 6, 6, 7, 3,        // Top face
-                4, 5, 1, 1, 0, 4         // Bottom face
+                0, 1, 2, 2, 3, 0,        // 前
+                1, 5, 6, 6, 2, 1,        // 右
+                5, 4, 7, 7, 6, 5,        // 后
+                4, 0, 3, 3, 7, 4,        // 左
+                3, 2, 6, 6, 7, 3,        // 上
+                4, 5, 1, 1, 0, 4         // 下
         };
-        Vector3D[][] cube = {
-                new Vector3D[] {vertices[2], vertices[1], vertices[0]},
-                new Vector3D[] {vertices[0], vertices[3], vertices[2]},
-                new Vector3D[] {vertices[6], vertices[5], vertices[1]},
-                new Vector3D[] {vertices[1], vertices[2], vertices[6]},
-                new Vector3D[] {vertices[7], vertices[4], vertices[5]},
-                new Vector3D[] {vertices[5], vertices[6], vertices[7]},
-                new Vector3D[] {vertices[3], vertices[0], vertices[4]},
-                new Vector3D[] {vertices[4], vertices[7], vertices[3]},
-                new Vector3D[] {vertices[6], vertices[2], vertices[3]},
-                new Vector3D[] {vertices[3], vertices[7], vertices[6]},
-                new Vector3D[] {vertices[1], vertices[5], vertices[4]},
-                new Vector3D[] {vertices[4], vertices[0], vertices[1]}
-        };
+
+        Vector3D[][]  cube = new Vector3D[indices.length/3][];
+        for(int i = 0; i < cube.length; i++) {
+            cube[i] = new Vector3D[] {vertices[indices[i*3+2]],
+                    vertices[indices[i*3+1]],
+                    vertices[indices[i*3]]};
+        }
         int[] color = { 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF };
 
         while (true) {
@@ -115,10 +110,15 @@ public class MainThread extends JFrame implements KeyListener {
                 System.arraycopy(screen, 0, screen, i, Math.min(screenSize - i, i));
 
             // 绘制正方体
+            Rasterizer.renderType = 0;
+            Rasterizer.localRotationY = (frameIndex*2)%360;
+            Rasterizer.localRotationX = (frameIndex*2)%360;
+            Rasterizer.localRotationZ = (frameIndex*2)%360;
+            localTranslation.y+= (Math.cos((float)frameIndex/8)*0.1);
+            Rasterizer.localTranslation = localTranslation;
             for(int i =0; i < cube.length; i++) {
                 Rasterizer.triangleVertices = cube[i];
-                Rasterizer.triangleColor =  color[i / 2];
-                Rasterizer.renderType = 0;
+                Rasterizer.triangleColor =  color[i/2];
                 Rasterizer.rasterize();
             }
 
@@ -126,21 +126,25 @@ public class MainThread extends JFrame implements KeyListener {
             frameIndex++;
 
             // 计算当前帧率并尽量让刷新率保持稳定
-            if (frameIndex % 30 == 0) {
-                double thisTime = System.currentTimeMillis();
-                framePerSecond = (int) (1000 / ((thisTime - lastTime) / 30.0f));
-                lastTime = thisTime;
-            }
-            sleepTime = 0;
+            int totalSpeedTime = 0;
             while (System.currentTimeMillis() - lastDraw < frameInterval) {
                 try {
-                    Thread.sleep(1L);
-                    sleepTime++;
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    Thread.sleep(1);
+                    totalSpeedTime++;
+                } catch (InterruptedException e1) {
+                    e1.printStackTrace();
                 }
             }
+            sleepTime += totalSpeedTime;
             lastDraw = System.currentTimeMillis();
+            // 计算当前的刷新率，并尽量让刷新率保持恒定。
+            if (frameIndex % 30 == 0) {
+                double thisTime = System.currentTimeMillis();
+                framePerSecond = (int) (1000 / ((thisTime - lastTime) / 30));
+                lastTime = thisTime;
+                averageSleepTime = sleepTime / 30;
+                sleepTime = 0;
+            }
 
             // 显示当前刷新率
             Graphics2D g2 = (Graphics2D) screenBuffer.getGraphics();

@@ -58,8 +58,8 @@ public class Camera {
 
         // 更新视角的方向
         viewDirection.set(0,0,1);
-        viewDirection.rotate_X(X_angle);
-        viewDirection.rotate_Y(Y_angle);
+        viewDirection.rotateX(X_angle);
+        viewDirection.rotateY(Y_angle);
         viewDirection.unit();
 
         // 处理向前移动

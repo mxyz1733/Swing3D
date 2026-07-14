@@ -36,8 +36,18 @@ public class Rasterizer {
     // 三角形的类型
     public static int renderType;
 
-    // 辅助渲染计算的矢量变量
-    public static Vector3D surfaceNormal, edge1, edge2;
+    // Z 裁剪平面离视角原点的距离
+    public static float nearClipDistance = 0.01f;
+
+    // 三角形所在对象本身坐标系进行的平移变换
+    public static Vector3D localTranslation;
+
+    // 三角形所在对象本身坐标系的旋转变换
+    public static int localRotationX, localRotationY, localRotationZ;
+
+
+    // 辅助渲染计算的矢量类变量
+    public static Vector3D surfaceNormal, edge1, edge2, tempVector1, clippedVertices[];
 
     // 初始化光栅渲染器
     public static void init() {
@@ -49,9 +59,16 @@ public class Rasterizer {
         };
 
         // 初始化辅助渲染的临时变量
-        surfaceNormal = new Vector3D(0, 0, 0);
-        edge1 = new Vector3D(0, 0, 0);
-        edge2 = new Vector3D(0, 0, 0);
+        surfaceNormal = new Vector3D(0,0,0);
+        edge1 = new Vector3D(0,0,0);
+        edge2 = new Vector3D(0,0,0);
+        tempVector1 = new Vector3D(0,0,0);
+        clippedVertices = new Vector3D[]{
+                new Vector3D(0,0,0),
+                new Vector3D(0,0,0),
+                new Vector3D(0,0,0),
+                new Vector3D(0,0,0)
+        };
     }
 
     // 光栅渲染器的入口
@@ -62,6 +79,9 @@ public class Rasterizer {
         // 提前终止对隐藏面的渲染
         if (testHidden()) return;
 
+        // 将在三角形在z裁键平面的部分裁剪掉
+        clipZNearPlane();
+
         // 将三角形转换为扫描线
         scanTriangle();
 
@@ -71,26 +91,33 @@ public class Rasterizer {
 
     // 变换三角形的顶点
     public static void transformVertices() {
-        // 把三角形的原有顶点按视角变换的反方向用来变换
-        float x = 0,y = 0, z = 0,
-                sinY = LookupTables.sin[Camera.Y_angle],
-                cosY = LookupTables.cos[Camera.Y_angle],
-                sinX = LookupTables.sin[Camera.X_angle],
-                cosX = LookupTables.cos[Camera.X_angle];
+        float local_sinX = LookupTables.sin[localRotationX];
+        float local_cosX = LookupTables.cos[localRotationX];
+        float local_sinY = LookupTables.sin[localRotationY];
+        float local_cosY = LookupTables.cos[localRotationY];
+        float local_sinZ = LookupTables.sin[localRotationZ];
+        float local_cosZ = LookupTables.cos[localRotationZ];
+
+        float global_sinY = LookupTables.sin[(360-Camera.Y_angle) % 360];
+        float global_cosY = LookupTables.cos[(360-Camera.Y_angle) % 360];
+        float global_sinX = LookupTables.sin[(360-Camera.X_angle) % 360];
+        float global_cosX = LookupTables.cos[(360-Camera.X_angle) % 360];
+
         for(int i = 0; i < 3; i++){
-            // 将每个顶点沿着视角的 x、y、z 轴移动，
-            x = triangleVertices[i].x - Camera.position.x;
-            y = triangleVertices[i].y - Camera.position.y;
-            z = triangleVertices[i].z - Camera.position.z;
 
-            // 用矢量旋转公式对顶点进行旋转变换
-            updatedVertices[i].x = cosY * x - sinY * z;
-            updatedVertices[i].z = sinY * x + cosY * z;
+            updatedVertices[i].set(triangleVertices[i]);
 
-            z = updatedVertices[i].z;
+            //将三角形按其所在对象本身坐标系进行变换
+            updatedVertices[i].rotateX(local_sinX, local_cosX);
+            updatedVertices[i].rotateY(local_sinY, local_cosY);
+            updatedVertices[i].rotateZ(local_sinZ, local_cosZ);
+            updatedVertices[i].add(localTranslation);
 
-            updatedVertices[i].y = cosX*y - sinX*z;
-            updatedVertices[i].z = sinX*y + cosX*z;
+
+            //把三角形的原有顶点按视角变换的反方向用来变换
+            updatedVertices[i].subtract(Camera.position);
+            updatedVertices[i].rotateY(global_sinY, global_cosY);
+            updatedVertices[i].rotateX(global_sinX, global_cosX);
         }
     }
 
@@ -99,7 +126,7 @@ public class Rasterizer {
         // 如果三角形的顶点全部在 Z 裁剪平面后面, 则这个三角形可视为隐藏面
         boolean allBehindClippingPlane = true;
         for(int i = 0; i < 3; i++) {
-            if(updatedVertices[i].z >= 0.01f) {
+            if(updatedVertices[i].z >= nearClipDistance) {
                 allBehindClippingPlane = false;
                 break;
             }
@@ -116,6 +143,48 @@ public class Rasterizer {
         float dotProduct  = surfaceNormal.dot(updatedVertices[0]);
         // 如果不朝向视角, 则这个三角形可视为隐藏面, 否则可视为非隐藏面
         return dotProduct >= 0;
+    }
+
+    // 裁剪三角形在 Z 裁剪平面后的部分
+    public static void clipZNearPlane() {
+        // 一般情况下三角形顶点数为3, 裁剪后有可能变为4
+        verticesCount = 0;
+
+        for (int i = 0; i < 3; i++) {
+            // 如果顶点在裁剪平面之前, 则不做任何改动, 否则需要对三角形进行裁剪
+            if (updatedVertices[i].z >= nearClipDistance) {
+                clippedVertices[verticesCount].set(updatedVertices[i]);
+                verticesCount++;
+            } else {
+                // 找到前一个顶点(即三角形边上与当前顶点相邻的顶点)
+                int index = (i + 3 - 1) % 3;
+                if (updatedVertices[index].z >= nearClipDistance) {
+                    // 如果前一个顶点在裁剪平面的前面, 就找出当前顶点和前一个顶点之间的线段在裁剪平面的交点
+                    approximatePoint(verticesCount, updatedVertices[i], updatedVertices[index]);
+                    verticesCount++;
+                }
+                // 找到后一个顶点(即三角形边上与当前顶点相邻的另一个顶点)
+                index = (i + 1) % 3;
+                if (updatedVertices[index].z >= nearClipDistance) {
+                    // 如果后一个顶点在裁剪平面的前面, 就找出当前顶点和后一个顶点之间的线段在裁剪平面的交点
+                    approximatePoint(verticesCount, updatedVertices[i], updatedVertices[index]);
+                    verticesCount++;
+                }
+            }
+        }
+    }
+
+    // 找出两点之间的线段在裁剪平面的交点
+    public static void approximatePoint(int index, Vector3D behindPoint, Vector3D frontPoint) {
+
+        //交点在线段间位置的比例
+        tempVector1.set(frontPoint.x - behindPoint.x, frontPoint.y - behindPoint.y, frontPoint.z - behindPoint.z);
+        float ratio = (frontPoint.z - nearClipDistance) / tempVector1.z;
+
+        // 线段方向矢量乘以这个比例, 就可以得到交点的位置
+        tempVector1.scale(ratio);
+        clippedVertices[index].set(frontPoint.x, frontPoint.y, frontPoint.z);
+        clippedVertices[index].subtract(tempVector1);
     }
 
     // 将三角形转换为扫描线
