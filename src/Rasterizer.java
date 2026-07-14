@@ -9,6 +9,9 @@ public class Rasterizer {
     // 屏幕的像素组
     public static int[] screen = MainThread.screen;
 
+    // 屏幕的深度缓冲
+    public static float[] zBuffer = MainThread.zBuffer;
+
     // 视角的原点到屏幕的距离(px)， 这个值越大视角就越狭窄. 常用的值为屏宽的一半
     public static int screenDistance = screen_w / 2;
 
@@ -27,8 +30,17 @@ public class Rasterizer {
     // 用于扫描三角形的两个数组, 每行有两个值, 分别表示描线的起点和终点的 x 坐标
     public static int[] xLeft = new int[screen_h], xRight = new int[screen_h];
 
+    // 用于扫描三角形深度的两个数组, 每行有两个值, 分别表示描线的起点和终点的z值
+    public static float[] zLeft = new float[screen_h], zRight = new float[screen_h];
+
+    // 用于记录三角形顶点的深度值
+    public static float[] vertexDepth = new float[4];
+
     // 三角形扫描线最高和最低的位置
     public static int scanUpperPosition, scanLowerPosition;
+
+    // 三角形的最高和最低, 最左和最右的位置
+    public static float leftMostPosition, rightMostPosition, upperMostPosition, lowerMostPosition;
 
     // 三角形的颜色
     public static int triangleColor;
@@ -49,6 +61,9 @@ public class Rasterizer {
     // 辅助渲染计算的矢量类变量
     public static Vector3D surfaceNormal, edge1, edge2, tempVector1, clippedVertices[];
 
+    // 判断三角形是否与屏幕的左边和右边相切
+    public static boolean isClippingRightOrLeft;
+
     // 初始化光栅渲染器
     public static void init() {
         // 初始化三角形变换后的顶点
@@ -57,6 +72,9 @@ public class Rasterizer {
                 new Vector3D(0,0,0),
                 new Vector3D(0,0,0)
         };
+
+        // 初始本身坐标系进行的平移变换
+        localTranslation = new Vector3D(0,0,0);
 
         // 初始化辅助渲染的临时变量
         surfaceNormal = new Vector3D(0,0,0);
@@ -104,7 +122,6 @@ public class Rasterizer {
         float global_cosX = LookupTables.cos[(360-Camera.X_angle) % 360];
 
         for(int i = 0; i < 3; i++){
-
             updatedVertices[i].set(triangleVertices[i]);
 
             //将三角形按其所在对象本身坐标系进行变换
@@ -118,14 +135,21 @@ public class Rasterizer {
             updatedVertices[i].subtract(Camera.position);
             updatedVertices[i].rotateY(global_sinY, global_cosY);
             updatedVertices[i].rotateX(global_sinX, global_cosX);
+
+            //用投影公式计算顶点在屏幕上的2D坐标
+            vertices2D[i][0] = half_screen_w + updatedVertices[i].x * screenDistance / updatedVertices[i].z;
+            vertices2D[i][1] = half_screen_h - updatedVertices[i].y * screenDistance / updatedVertices[i].z;
+
+            //获得顶点的深度值
+            vertexDepth[i] = 1f/updatedVertices[i].z;
         }
     }
 
     // 测试隐藏面
     public static boolean testHidden() {
-        // 如果三角形的顶点全部在 Z 裁剪平面后面, 则这个三角形可视为隐藏面
+        // 测试 1: 如果三角形的顶点全部在Z裁剪平面后面，则这个三角形可视为隐藏面
         boolean allBehindClippingPlane = true;
-        for(int i = 0; i < 3; i++) {
+        for (int i = 0; i < 3; i++) {
             if(updatedVertices[i].z >= nearClipDistance) {
                 allBehindClippingPlane = false;
                 break;
@@ -134,15 +158,45 @@ public class Rasterizer {
         if (allBehindClippingPlane)
             return true;
 
-        // 计算三角形表面法线向量并检查其是否朝向视角
+        // 测试 2: 计算三角形表面法线向量并检查其是否朝向视角
         edge1.set(updatedVertices[1]);
         edge1.subtract(updatedVertices[0]);
         edge2.set(updatedVertices[2]);
         edge2.subtract(updatedVertices[0]);
         surfaceNormal.cross(edge1, edge2);
         float dotProduct  = surfaceNormal.dot(updatedVertices[0]);
-        // 如果不朝向视角, 则这个三角形可视为隐藏面, 否则可视为非隐藏面
-        return dotProduct >= 0;
+        // 如果不朝向视角, 则这个三角形可视为隐藏面
+        if(dotProduct >= 0)
+            return true;
+
+        // 测试 3: 判断三角形是否在屏幕外
+        leftMostPosition = screen_w;
+        rightMostPosition = -1;
+        upperMostPosition = screen_h;
+        lowerMostPosition = -1;
+        for (int i = 0; i < 3; i++) {
+            // 计算这个三角形的最左边和最右边
+            if (vertices2D[i][0] <= leftMostPosition)
+                leftMostPosition = vertices2D[i][0];
+            if (vertices2D[i][0] >= rightMostPosition)
+                rightMostPosition = vertices2D[i][0];
+
+            // 计算这个三角形的最上边和最下边
+            if (vertices2D[i][1] <= upperMostPosition)
+                upperMostPosition = (int) vertices2D[i][1];
+            if (vertices2D[i][1] >= lowerMostPosition)
+                lowerMostPosition = (int) vertices2D[i][1];
+        }
+
+        // 如果这个三角形的最左边或最右或最上或最下都没有被重新赋值, 那么这个三角形肯定在屏幕范围之外, 所以不对其进行渲染
+        if(leftMostPosition == screen_w ||  rightMostPosition == -1 || upperMostPosition == screen_h || lowerMostPosition == -1) {
+            return true;
+        }
+
+        // 判断三角形是否和屏幕的左边和右边相切
+        isClippingRightOrLeft = leftMostPosition < 0 || rightMostPosition >= screen_w;
+
+        return false;
     }
 
     // 裁剪三角形在 Z 裁剪平面后的部分
@@ -150,12 +204,15 @@ public class Rasterizer {
         // 一般情况下三角形顶点数为3, 裁剪后有可能变为4
         verticesCount = 0;
 
+        Boolean needToBeClipped = false;
+
         for (int i = 0; i < 3; i++) {
             // 如果顶点在裁剪平面之前, 则不做任何改动, 否则需要对三角形进行裁剪
             if (updatedVertices[i].z >= nearClipDistance) {
                 clippedVertices[verticesCount].set(updatedVertices[i]);
                 verticesCount++;
             } else {
+                needToBeClipped = true;
                 // 找到前一个顶点(即三角形边上与当前顶点相邻的顶点)
                 int index = (i + 3 - 1) % 3;
                 if (updatedVertices[index].z >= nearClipDistance) {
@@ -170,6 +227,19 @@ public class Rasterizer {
                     approximatePoint(verticesCount, updatedVertices[i], updatedVertices[index]);
                     verticesCount++;
                 }
+            }
+        }
+
+        // 如果三角形被裁剪平面裁剪则要重新计算一遍和顶点的有关的参数
+        if (needToBeClipped) {
+            isClippingRightOrLeft = true;
+            for (int i = 0; i < verticesCount; i++) {
+                // 用投影公式计算顶点在屏幕上的2D坐标
+                vertices2D[i][0] = half_screen_w + clippedVertices[i].x * screenDistance / clippedVertices[i].z;
+                vertices2D[i][1] = half_screen_h - clippedVertices[i].y * screenDistance / clippedVertices[i].z;
+
+                // 获得顶点的深度值
+                vertexDepth[i] = 1.0f / clippedVertices[i].z;
             }
         }
     }
@@ -189,35 +259,39 @@ public class Rasterizer {
 
     // 将三角形转换为扫描线
     public static void scanTriangle() {
-        // 用投影公式计算顶点在屏幕上的2D坐标
-        for(int i = 0; i < verticesCount; i++) {
-            vertices2D[i][0] = half_screen_w + updatedVertices[i].x * screenDistance / updatedVertices[i].z;
-            vertices2D[i][1] = half_screen_h - updatedVertices[i].y * screenDistance / updatedVertices[i].z;
-        }
-
         // 初始化扫描线最高和最低的位置
         scanUpperPosition = screen_h;
         scanLowerPosition = -1;
 
-        // 计算扫描线用到的辅助参数
-        int tempX;
-
         // 扫描三角形的每一个边
         for(int i = 0; i < verticesCount; i++) {
-            // 获取构成边的两点的坐标
-            float[] vertex1 = vertices2D[i];
-            // 如果已经处理到最后一个顶点, 则第二个点为第一个顶点, 否则第二个顶点为下一个顶点
-            float[] vertex2 = vertices2D[(i == verticesCount - 1) ? 0 : (i + 1)];
+            float[] vertex1 = vertices2D[i];    // 获取第一个顶点
+            float[] vertex2;
+
+            float depth1 = vertexDepth[i];      // 获取第一个顶点的深度值
+            float depth2;
+
+            if (i == verticesCount -1 ) {       // 如果已经处理到最后一个顶点
+                vertex2 = vertices2D[0];        // 则第二个点为第一个顶点
+                depth2 = vertexDepth[0];
+            } else {
+                vertex2 = vertices2D[i + 1];    // 否则第二个顶点为下一个顶点
+                depth2 = vertexDepth[i + 1];
+            }
 
             // 默认是下降的边
             boolean downwards = true;
 
-            // 若第一个顶点低于第二个顶点, 则为上升的边, 此时可互换两个点以确保扫描始终至上而下
+            // 若第一个顶点低于第二个顶点, 则为上升的边, 此时可互换两个点及其对应深度以确保扫描始终至上而下
             if (vertex1[1] > vertex2[1]) {
                 downwards = false;
                 float[] temp = vertex1;
                 vertex1 = vertex2;
                 vertex2 = temp;
+
+                float tempDepth = depth1;
+                depth1 = depth2;
+                depth2 = tempDepth;
             }
 
             // 忽略水平边
@@ -237,21 +311,61 @@ public class Rasterizer {
 
 
             // 计算边的梯度,把浮点转换为整数增加运算效率
-            float gradient = (vertex2[0] - vertex1[0]) * 2048 / dy;
-            int g = (int) gradient;
+            float gradient = (vertex2[0] - vertex1[0]) / dy;
+            // 计算边的深度变化的梯度
+            float dz_y = (depth2-depth1) / dy;
 
-            int startX = (int) (vertex1[0] * 2048 + (startY - vertex1[1]) * gradient);
-            for (int y = startY; y <= endY; y++) {
-                // 还原
-                tempX = startX >> 11;
+            // 用线性插值算出这条边高位的x初始值
+            float startX = ((vertex1[0]) +  (startY - vertex1[1]) * gradient);
 
+            for (int y=startY; y<=endY; y++, startX += gradient) {
                 // 把下降边的x值存到扫描线的右边, 反之就放到扫描线的左面
                 if (downwards) {
-                    xRight[y] = (tempX <= screen_w - 1) ? tempX : screen_w;
+                    xRight[y] = (int) startX;
+                    zRight[y] = depth1 + (y - vertex1[1]) * dz_y;
                 } else {
-                    xLeft[y] = Math.max(tempX, 0);
+                    xLeft[y] = (int) startX;
+                    zLeft[y] = depth1 + (y - vertex1[1]) * dz_y;
                 }
-                startX += g;
+            }
+        }
+
+        // 当三角形与屏幕的两边相切的时候, 我们需要对扫描线数组的两个边缘进行修改, 确保它们的值都在 0~screen_w 之间
+        if (isClippingRightOrLeft) {
+            int x_left, x_right;
+            boolean xLeftInView, xRightInView;
+            // 逐行处理扫描线
+            for(int y = scanUpperPosition; y <= scanLowerPosition; y++) {
+                x_left = xLeft[y];
+                x_right = xRight[y];
+
+                // 左右边缘是否在屏幕内
+                xLeftInView = x_left >= 0 && x_left <= screen_w;
+                xRightInView = x_right > 0 && x_right <= screen_w;
+
+                // 如果都在屏幕内就不做任何处理
+                if (xLeftInView && xRightInView) continue;
+
+                // 如果出现不符合逻辑的左缘或右缘, 那么把这条扫描线的长度设为 0 以免被渲染出来
+                if(x_left >= screen_w  || x_right <= 0) {
+                    xLeft[y] = 0;
+                    xRight[y] = 0;
+                    continue;
+                }
+
+                float dx =  x_right - x_left;                                    // 算出扫描线的长度
+                float dz = zRight[y] - zLeft[y];                                 // 算出扫描线左缘和右缘之间的深度差
+
+                if (!xLeftInView) {                                              // 如果左缘比屏幕的左边还要左
+                    xLeft[y] = 0;                                                // 就把左缘设在屏幕的最左端
+                    zLeft[y] = (zLeft[y] + dz / dx * (0 - x_left));              // 用线性插值算出左缘的深度值
+
+                }
+
+                if (!xRightInView) {                                             // 如果右缘比屏幕的右边还要右
+                    xRight[y] = screen_w;                                        // 就把右缘设在屏幕的最右端
+                    zRight[y] = (zRight[y] - dz / dx * (x_right - screen_w));    // 用线性插值算出右缘的深度值
+                }
             }
         }
     }
@@ -270,11 +384,23 @@ public class Rasterizer {
             int x_left = xLeft[i] ;
             int x_right = xRight[i];
 
+            float z_Left = zLeft[i];
+            float z_Right = zRight[i];
+
+            // 算出这条扫描线上深度值改变的梯度
+            float dz = (z_Right- z_Left) / (x_right - x_left);
+
             x_left += i * screen_w;
             x_right += i * screen_w;
 
-            for(int j = x_left; j < x_right; j++){
-                screen[j] = triangleColor;
+            int jStart = Math.max(x_left, 0);
+            int jEnd = Math.min(x_right, screen.length);
+
+            for (int j = jStart;  j < jEnd; j++, z_Left += dz) {
+                if (zBuffer[j] < z_Left) {         // 如果深度浅于深度缓冲上的值
+                    zBuffer[j] = z_Left;           // 就更新深度缓冲上的值
+                    screen[j] = triangleColor;     // 并给屏幕上的这个像素上色
+                }
             }
         }
 

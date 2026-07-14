@@ -20,6 +20,9 @@ public class MainThread extends JFrame implements KeyListener {
     // 使用 int[] 存储屏幕上像素的数值
     public static int[] screen;
 
+    // 使用 float[] 来存储屏幕的深度缓冲值
+    public static float[] zBuffer;
+
     // 屏幕图像缓冲区, 提供了在内存中操作屏幕中图像的方法
     public static BufferedImage screenBuffer;
 
@@ -65,6 +68,9 @@ public class MainThread extends JFrame implements KeyListener {
         screenBuffer = new BufferedImage(screen_w, screen_h, BufferedImage.TYPE_INT_RGB);
         DataBuffer dest = screenBuffer.getRaster().getDataBuffer();
         screen = ((DataBufferInt) dest).getData();
+
+        // 初始化深度缓冲
+        zBuffer = new float[screenSize];
     }
 
     // 渲染主循环
@@ -81,8 +87,6 @@ public class MainThread extends JFrame implements KeyListener {
                 new Vector3D(l, l, l),
                 new Vector3D(-l, l, l)
         };
-        //将正方体向前移动3.5f
-        Vector3D localTranslation = new Vector3D(0, 0, 4f);
         int[] indices = {
                 0, 1, 2, 2, 3, 0,        // 前
                 1, 5, 6, 6, 2, 1,        // 右
@@ -92,15 +96,23 @@ public class MainThread extends JFrame implements KeyListener {
                 4, 5, 1, 1, 0, 4         // 下
         };
 
-        Vector3D[][]  cube = new Vector3D[indices.length/3][];
+        Vector3D[][]  cube = new Vector3D[indices.length / 3][];
         for(int i = 0; i < cube.length; i++) {
-            cube[i] = new Vector3D[] {vertices[indices[i*3+2]],
-                    vertices[indices[i*3+1]],
-                    vertices[indices[i*3]]};
+            cube[i] = new Vector3D[] {
+                    vertices[indices[i * 3 + 2]],
+                    vertices[indices[i * 3 + 1]],
+                    vertices[indices[i * 3 + 0]]
+            };
         }
         int[] color = { 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF };
+        int[] color2 = { 0xFF8C00, 0x6A5ACD, 0x008B8B, 0xFFD700, 0x228B22, 0xCD5C5C };
 
         while (true) {
+            // 将深度缓冲值归零
+            zBuffer[0] = 0.0f;
+            for (int i = 1; i < screenSize; i <<= 1)
+                System.arraycopy(zBuffer, 0, zBuffer, i, Math.min(screenSize - i, i));
+
             // 更新视角
             Camera.update();
 
@@ -109,16 +121,27 @@ public class MainThread extends JFrame implements KeyListener {
             for(int i = 1; i < screenSize; i += i)
                 System.arraycopy(screen, 0, screen, i, Math.min(screenSize - i, i));
 
-            // 绘制正方体
+            // 绘制正方体1
+            Rasterizer.localTranslation.set(0, 0, 4f);
             Rasterizer.renderType = 0;
-            Rasterizer.localRotationY = (frameIndex*2)%360;
-            Rasterizer.localRotationX = (frameIndex*2)%360;
-            Rasterizer.localRotationZ = (frameIndex*2)%360;
-            localTranslation.y+= (Math.cos((float)frameIndex/8)*0.1);
-            Rasterizer.localTranslation = localTranslation;
+            Rasterizer.localRotationY = (frameIndex * 2) % 360;
+            Rasterizer.localRotationX = (frameIndex * 2) % 360;
+            Rasterizer.localRotationZ = (frameIndex * 2) % 360;
+
             for(int i =0; i < cube.length; i++) {
                 Rasterizer.triangleVertices = cube[i];
                 Rasterizer.triangleColor =  color[i/2];
+                Rasterizer.rasterize();
+            }
+
+            // 绘制正方体2
+            Rasterizer.localRotationY = 180;
+            Rasterizer.localRotationX = 0;
+            Rasterizer.localRotationZ = 0;
+            Rasterizer.localTranslation.set(0.7f, 0.3f, 4.2f);;
+            for(int i =0; i < cube.length; i++) {
+                Rasterizer.triangleVertices = cube[i];
+                Rasterizer.triangleColor =  color2[i / 2];
                 Rasterizer.rasterize();
             }
 
