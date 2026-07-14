@@ -16,6 +16,12 @@ public class Vector3D {
         this.z=v.z;
     }
 
+    public void set(float x , float y, float z) {
+        this.x=x;
+        this.y=y;
+        this.z=z;
+    }
+
     //与另一个矢量相加
     public void add(Vector3D v) {
         this.x+=v.x;
@@ -23,16 +29,32 @@ public class Vector3D {
         this.z+=v.x;
     }
 
+    public void add(Vector3D v, float scaler){
+        x += v.x * scaler;
+        y += v.y * scaler;
+        z += v.z * scaler;
+    }
+
     //矢量减法
     public void subtract(Vector3D v) {
         this.x-=v.x;
-        this.y-=v.x;
-        this.z-=v.x;
+        this.y-=v.y;
+        this.z-=v.z;
+    }
+
+    public void subtract(Vector3D v, float scaler){
+        x -= v.x * scaler;
+        y -= v.y * scaler;
+        z -= v.z * scaler;
     }
 
     //矢量点积, 结果代表两个矢量之间的相似程度
-    public float dot(Vector3D v1, Vector3D v2){
-        return v1.x*v2.x + v1.y*v2.y + v1.z*v2.z;
+    public float dot(Vector3D v2){
+        return this.x*v2.x + this.y*v2.y + this.z*v2.z;
+    }
+
+    public float dot(float x, float y, float z){
+        return this.x*x + this.y*y + this.z*z;
     }
 
     //矢量叉积，来求一个与这两个矢量都垂直的矢量
@@ -40,6 +62,10 @@ public class Vector3D {
         x = v1.y*v2.z - v1.z*v2.y;
         y = v1.z*v2.x - v1.x*v2.z;
         z = v1.x*v2.y - v1.y*v2.x;
+    }
+
+    public  Vector3D cross(Vector3D v){
+        return new Vector3D(y*v.z - z*v.y, z*v.x - x*v.z, x*v.y - y*v.x);
     }
 
     //返回矢量的长度
@@ -68,8 +94,15 @@ public class Vector3D {
         float cos = LookupTables.cos[angle];
         float old_X = x;
         float old_Z = z;
-        x = cos*old_X - sin*old_Z;
-        z = sin*old_X + cos*old_Z;
+        x = cos*old_X + sin*old_Z;
+        z = - sin*old_X + cos*old_Z;
+    }
+
+    public void  rotate_Y(float sin, float cos){
+        float old_X = x;
+        float old_Z = z;
+        x = cos*old_X + sin*old_Z;
+        z = -sin*old_X + cos*old_Z;
     }
 
     //绕 X 轴旋转矢量，使其顺时针旋转指定角度
@@ -78,8 +111,15 @@ public class Vector3D {
         float cos = LookupTables.cos[angle];
         float old_Y = y;
         float old_Z = z;
-        y = cos*old_Y - sin*old_Z;
-        z = sin*old_Y + cos*old_Z;
+        y = cos*old_Y + sin*old_Z;
+        z = -sin*old_Y + cos*old_Z;
+    }
+
+    public void rotate_X(float sin, float cos){
+        float old_Y = y;
+        float old_Z = z;
+        y = cos*old_Y + sin*old_Z;
+        z = -sin*old_Y + cos*old_Z;
     }
 
     //绕 Z 轴旋转矢量，使其顺时针旋转指定角度
@@ -88,9 +128,20 @@ public class Vector3D {
         float cos = LookupTables.cos[angle];
         float old_X = x;
         float old_Y = y;
-        x = cos*old_X - sin*old_Y;
-        y = sin*old_X + cos*old_Y;
+        x = cos*old_X + sin*old_Y;
+        y = -sin*old_X + cos*old_Y;
+    }
+
+    public void rotate_Z(float sin, float cos){
+        float old_X = x;
+        float old_Y = y;
+        x = cos*old_X + sin*old_Y;
+        y = -sin*old_X + cos*old_Y;
     }
 
 
+    //将Vector3D换成字符串
+    public String toString() {
+        return "(" + x + ", " + y + ", " + z + ")";
+    }
 }

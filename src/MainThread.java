@@ -1,10 +1,12 @@
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBuffer;
 import java.awt.image.DataBufferInt;
 
-public class MainThread extends JFrame {
+public class MainThread extends JFrame implements KeyListener {
     // 屏幕分辨率
     public static int screen_w = 1024;
     public static int screen_h = 682;
@@ -38,6 +40,8 @@ public class MainThread extends JFrame {
     public MainThread() {
         // 初始化
         init();
+        // 添加按键监听器
+        addKeyListener(this);
     }
 
     // 初始化
@@ -65,21 +69,58 @@ public class MainThread extends JFrame {
 
     // 渲染主循环
     public void mainLoop() {
-        //测试一个简单的单色三角形渲染
-        Vector3D[] myTriangle = new Vector3D[3];
-        myTriangle[0] = new Vector3D(0, 1, 2);
-        myTriangle[1] = new Vector3D(1, -1, 2);
-        myTriangle[2] = new Vector3D(-1, -1, 2);
+        // 测试一个正方体
+        float l = 0.5f;
+        Vector3D[] vertices = {
+                new Vector3D(-l, -l, -l + 2.5f),
+                new Vector3D(l, -l, -l + 2.5f),
+                new Vector3D(l, l, -l + 2.5f),
+                new Vector3D(-l, l, -l + 2.5f),
+                new Vector3D(-l, -l, l + 2.5f),
+                new Vector3D(l, -l, l + 2.5f),
+                new Vector3D(l, l, l + 2.5f),
+                new Vector3D(-l, l, l + 2.5f)
+        };
+        int[] indices = {
+                0, 1, 2, 2, 3, 0,        // Front face
+                1, 5, 6, 6, 2, 1,        // Right face
+                5, 4, 7, 7, 6, 5,        // Back face
+                4, 0, 3, 3, 7, 4,        // Left face
+                3, 2, 6, 6, 7, 3,        // Top face
+                4, 5, 1, 1, 0, 4         // Bottom face
+        };
+        Vector3D[][] cube = {
+                new Vector3D[] {vertices[2], vertices[1], vertices[0]},
+                new Vector3D[] {vertices[0], vertices[3], vertices[2]},
+                new Vector3D[] {vertices[6], vertices[5], vertices[1]},
+                new Vector3D[] {vertices[1], vertices[2], vertices[6]},
+                new Vector3D[] {vertices[7], vertices[4], vertices[5]},
+                new Vector3D[] {vertices[5], vertices[6], vertices[7]},
+                new Vector3D[] {vertices[3], vertices[0], vertices[4]},
+                new Vector3D[] {vertices[4], vertices[7], vertices[3]},
+                new Vector3D[] {vertices[6], vertices[2], vertices[3]},
+                new Vector3D[] {vertices[3], vertices[7], vertices[6]},
+                new Vector3D[] {vertices[1], vertices[5], vertices[4]},
+                new Vector3D[] {vertices[4], vertices[0], vertices[1]}
+        };
+        int[] color = { 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF };
 
         while (true) {
-            screen[0] = (163 << 16) | (216 << 8) | 239; //天蓝色
-            for(int i = 1; i < screenSize; i+=i)
+            // 更新视角
+            Camera.update();
+
+            // 渲染背景
+            screen[0] = (163 << 16) | (216 << 8) | 239; // 天蓝色
+            for(int i = 1; i < screenSize; i += i)
                 System.arraycopy(screen, 0, screen, i, Math.min(screenSize - i, i));
 
-            Rasterizer.triangleVertices = myTriangle;
-            Rasterizer.triangleColor =  (255 << 16) | (128 << 8) | 0; //橙色
-            Rasterizer.renderType = 0;
-            Rasterizer.rasterize();
+            // 绘制正方体
+            for(int i =0; i < cube.length; i++) {
+                Rasterizer.triangleVertices = cube[i];
+                Rasterizer.triangleColor =  color[i / 2];
+                Rasterizer.renderType = 0;
+                Rasterizer.rasterize();
+            }
 
             // 更新帧数
             frameIndex++;
@@ -111,12 +152,65 @@ public class MainThread extends JFrame {
         }
     }
 
+    @Override
+    public void keyPressed(KeyEvent e) {
+        if(e.getKeyChar() == 'w' || e.getKeyChar() == 'W')
+            Camera.MOVE_FORWARD = true;
+        else if(e.getKeyChar() == 's' || e.getKeyChar() == 'S')
+            Camera.MOVE_BACKWARD = true;
+        else if(e.getKeyChar() == 'a' || e.getKeyChar() == 'A')
+            Camera.SLIDE_LEFT = true;
+        else if(e.getKeyChar() == 'd' || e.getKeyChar() == 'D')
+            Camera.SLIDE_RIGHT = true;
+
+
+        if(e.getKeyCode() == KeyEvent.VK_UP)
+            Camera.LOOK_UP= true;
+        else if(e.getKeyCode() == KeyEvent.VK_DOWN)
+            Camera.LOOK_DOWN = true;
+        else if(e.getKeyCode() == KeyEvent.VK_LEFT)
+            Camera.LOOK_LEFT = true;
+        else if(e.getKeyCode() == KeyEvent.VK_RIGHT)
+            Camera.LOOK_RIGHT = true;
+
+    }
+
+    @Override
+    public void keyReleased(KeyEvent e) {
+        if(e.getKeyChar() == 'w' || e.getKeyChar() == 'W')
+            Camera.MOVE_FORWARD = false;
+        else if(e.getKeyChar() == 's' || e.getKeyChar() == 'S')
+            Camera.MOVE_BACKWARD = false;
+        else if(e.getKeyChar() == 'a' || e.getKeyChar() == 'A')
+            Camera.SLIDE_LEFT = false;
+        else if(e.getKeyChar() == 'd' || e.getKeyChar() == 'D')
+            Camera.SLIDE_RIGHT = false;
+
+        if(e.getKeyCode() == KeyEvent.VK_UP)
+            Camera.LOOK_UP= false;
+        else if(e.getKeyCode() == KeyEvent.VK_DOWN)
+            Camera.LOOK_DOWN = false;
+        else if(e.getKeyCode() == KeyEvent.VK_LEFT)
+            Camera.LOOK_LEFT = false;
+        else if(e.getKeyCode() == KeyEvent.VK_RIGHT)
+            Camera.LOOK_RIGHT = false;
+
+    }
+
+    @Override
+    public void keyTyped(KeyEvent e) {
+        // TODO Auto-generated method stub
+
+    }
+
     // 初始化各模块
     public static void initModules() {
         // 初始化查找表
         LookupTables.init();
         // 初始化软光栅渲染器
         Rasterizer.init();
+        // 初始化相机
+        Camera.init(0, 0, 0);
     }
 
     // 主程序入口

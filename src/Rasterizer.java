@@ -36,43 +36,96 @@ public class Rasterizer {
     // 三角形的类型
     public static int renderType;
 
+    // 辅助渲染计算的矢量变量
+    public static Vector3D surfaceNormal, edge1, edge2;
+
     // 初始化光栅渲染器
     public static void init() {
         // 初始化三角形变换后的顶点
         updatedVertices = new Vector3D[] {
                 new Vector3D(0,0,0),
                 new Vector3D(0,0,0),
-                new Vector3D(0,0,0),
-                new Vector3D(0,0,0),
+                new Vector3D(0,0,0)
         };
+
+        // 初始化辅助渲染的临时变量
+        surfaceNormal = new Vector3D(0, 0, 0);
+        edge1 = new Vector3D(0, 0, 0);
+        edge2 = new Vector3D(0, 0, 0);
     }
 
     // 光栅渲染器的入口
     public static void rasterize() {
         // 变换三角形的顶点
         transformVertices();
+
+        // 提前终止对隐藏面的渲染
+        if (testHidden()) return;
+
         // 将三角形转换为扫描线
         scanTriangle();
+
         // 给三角形的像素着色
         renderTriangle();
     }
 
     // 变换三角形的顶点
     public static void transformVertices() {
-        // 由于本节是渲染静态的三角形所以就不用变换了
-        updatedVertices[0].set(triangleVertices[0]);
-        updatedVertices[1].set(triangleVertices[1]);
-        updatedVertices[2].set(triangleVertices[2]);
+        // 把三角形的原有顶点按视角变换的反方向用来变换
+        float x = 0,y = 0, z = 0,
+                sinY = LookupTables.sin[Camera.Y_angle],
+                cosY = LookupTables.cos[Camera.Y_angle],
+                sinX = LookupTables.sin[Camera.X_angle],
+                cosX = LookupTables.cos[Camera.X_angle];
+        for(int i = 0; i < 3; i++){
+            // 将每个顶点沿着视角的 x、y、z 轴移动，
+            x = triangleVertices[i].x - Camera.position.x;
+            y = triangleVertices[i].y - Camera.position.y;
+            z = triangleVertices[i].z - Camera.position.z;
 
-        // 用投影公式求出顶点在屏幕上的2D坐标
-        for (int i = 0; i < verticesCount; i++) {
-            vertices2D[i][0] = half_screen_w + updatedVertices[i].x * screenDistance / updatedVertices[i].z;
-            vertices2D[i][1] = half_screen_h - updatedVertices[i].y * screenDistance / updatedVertices[i].z;
+            // 用矢量旋转公式对顶点进行旋转变换
+            updatedVertices[i].x = cosY * x - sinY * z;
+            updatedVertices[i].z = sinY * x + cosY * z;
+
+            z = updatedVertices[i].z;
+
+            updatedVertices[i].y = cosX*y - sinX*z;
+            updatedVertices[i].z = sinX*y + cosX*z;
         }
+    }
+
+    // 测试隐藏面
+    public static boolean testHidden() {
+        // 如果三角形的顶点全部在 Z 裁剪平面后面, 则这个三角形可视为隐藏面
+        boolean allBehindClippingPlane = true;
+        for(int i = 0; i < 3; i++) {
+            if(updatedVertices[i].z >= 0.01f) {
+                allBehindClippingPlane = false;
+                break;
+            }
+        }
+        if (allBehindClippingPlane)
+            return true;
+
+        // 计算三角形表面法线向量并检查其是否朝向视角
+        edge1.set(updatedVertices[1]);
+        edge1.subtract(updatedVertices[0]);
+        edge2.set(updatedVertices[2]);
+        edge2.subtract(updatedVertices[0]);
+        surfaceNormal.cross(edge1, edge2);
+        float dotProduct  = surfaceNormal.dot(updatedVertices[0]);
+        // 如果不朝向视角, 则这个三角形可视为隐藏面, 否则可视为非隐藏面
+        return dotProduct >= 0;
     }
 
     // 将三角形转换为扫描线
     public static void scanTriangle() {
+        // 用投影公式计算顶点在屏幕上的2D坐标
+        for(int i = 0; i < verticesCount; i++) {
+            vertices2D[i][0] = half_screen_w + updatedVertices[i].x * screenDistance / updatedVertices[i].z;
+            vertices2D[i][1] = half_screen_h - updatedVertices[i].y * screenDistance / updatedVertices[i].z;
+        }
+
         // 初始化扫描线最高和最低的位置
         scanUpperPosition = screen_h;
         scanLowerPosition = -1;
