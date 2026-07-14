@@ -10,6 +10,7 @@ public class MainThread extends JFrame {
     public static int screen_h = 682;
     public static int half_screen_w = screen_w / 2;
     public static int half_screen_h = screen_h / 2;
+    public static int screenSize = screen_w * screen_h;
 
     // 使用 JPanel 作为画板
     public static JPanel panel;
@@ -35,6 +36,12 @@ public class MainThread extends JFrame {
     public static double thisTime, lastTime;
 
     public MainThread() {
+        // 初始化
+        init();
+    }
+
+    // 初始化
+    public void init() {
         // 弹出一个 JPanel 窗口并将其放置于屏幕中间
         setTitle("Swing 3D");
         panel = (JPanel) this.getContentPane();
@@ -54,24 +61,25 @@ public class MainThread extends JFrame {
         screenBuffer = new BufferedImage(screen_w, screen_h, BufferedImage.TYPE_INT_RGB);
         DataBuffer dest = screenBuffer.getRaster().getDataBuffer();
         screen = ((DataBufferInt) dest).getData();
+    }
 
-        // 渲染主循环
+    // 渲染主循环
+    public void mainLoop() {
+        //测试一个简单的单色三角形渲染
+        Vector3D[] myTriangle = new Vector3D[3];
+        myTriangle[0] = new Vector3D(0, 1, 2);
+        myTriangle[1] = new Vector3D(1, -1, 2);
+        myTriangle[2] = new Vector3D(-1, -1, 2);
+
         while (true) {
-            int r_skyblue = 163, g_skyblue = 216, b_skyblue = 239;  // 天蓝色
-            int r_orange = 255, g_orange = 128, b_orange = 0;       // 橙色
+            screen[0] = (163 << 16) | (216 << 8) | 239; //天蓝色
+            for(int i = 1; i < screenSize; i+=i)
+                System.arraycopy(screen, 0, screen, i, Math.min(screenSize - i, i));
 
-            // 将屏幕渲染为从天蓝色过渡到橙色的动态画面
-            for (int i = 0; i < screen_w; ++i) {
-                int p = (i + frameIndex * 8) % screen_w;
-                for (int j = 0; j <screen_h; ++j) {
-                    float t1 = Math.abs((float) (half_screen_w - p) / half_screen_w);
-                    float t2 = 1.0f - t1;
-                    int r = (int) (r_skyblue * t1 + r_orange * t2);
-                    int g = (int) (g_skyblue * t1 + g_orange * t2);
-                    int b = (int) (b_skyblue * t1 + b_orange * t2);
-                    screen[i + j * screen_w] = (r << 16) | (g << 8) | b;
-                }
-            }
+            Rasterizer.triangleVertices = myTriangle;
+            Rasterizer.triangleColor =  (255 << 16) | (128 << 8) | 0; //橙色
+            Rasterizer.renderType = 0;
+            Rasterizer.rasterize();
 
             // 更新帧数
             frameIndex++;
@@ -103,8 +111,18 @@ public class MainThread extends JFrame {
         }
     }
 
+    // 初始化各模块
+    public static void initModules() {
+        // 初始化查找表
+        LookupTables.init();
+        // 初始化软光栅渲染器
+        Rasterizer.init();
+    }
+
     // 主程序入口
     public static void main(String[] args) {
-        new MainThread();
+        MainThread thread = new MainThread();
+        initModules();
+        thread.mainLoop();
     }
 }
