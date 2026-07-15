@@ -64,6 +64,15 @@ public class Rasterizer {
     // 判断三角形是否与屏幕的左边和右边相切
     public static boolean isClippingRightOrLeft;
 
+    //顶点缓冲对象
+    public static VertexBufferObject VBO;
+
+    //用以存储变换后的顶点的容器
+    public static Vector3D[] updatedVertexBuffer;
+
+    //渲染器可一次性处理顶点的最多个数
+    public static int maxNumberOfVertex = 262144;
+
     // 初始化光栅渲染器
     public static void init() {
         // 初始化三角形变换后的顶点
@@ -87,6 +96,12 @@ public class Rasterizer {
                 new Vector3D(0,0,0),
                 new Vector3D(0,0,0)
         };
+
+        // 初始化存储顶点变换的容器
+        updatedVertexBuffer = new Vector3D[maxNumberOfVertex];
+        for(int i = 0; i < maxNumberOfVertex; i ++) {
+            updatedVertexBuffer[i] = new Vector3D(0,0,0);
+        }
     }
 
     // 光栅渲染器的入口
@@ -94,17 +109,28 @@ public class Rasterizer {
         // 变换三角形的顶点
         transformVertices();
 
-        // 提前终止对隐藏面的渲染
-        if (testHidden()) return;
+        // 对顶点缓冲对象中的三角形进行渲染
+        for(int i = 0; i < VBO.triangleCount; i++) {
 
-        // 将在三角形在z裁键平面的部分裁剪掉
-        clipZNearPlane();
+            // 用索引缓冲来构建三角形
+            updatedVertices[0] = updatedVertexBuffer[VBO.indexBuffer[i * 3 + 2]];
+            updatedVertices[1] = updatedVertexBuffer[VBO.indexBuffer[i * 3 + 1]];
+            updatedVertices[2] = updatedVertexBuffer[VBO.indexBuffer[i * 3 + 0]];
 
-        // 将三角形转换为扫描线
-        scanTriangle();
+            // 测试三角形是否该被渲染出来
+            if(testHidden()) continue;
 
-        // 给三角形的像素着色
-        renderTriangle();
+            MainThread.triangleCount++;
+
+            // 将在三角形在 Z 裁剪平面的部分裁剪掉
+            clipZNearPlane();
+
+            // 将三角形转换为扫描线
+            scanTriangle();
+
+            // 给三角形的像素着色
+            renderTriangle();
+        }
     }
 
     // 变换三角形的顶点
@@ -121,27 +147,19 @@ public class Rasterizer {
         float global_sinX = LookupTables.sin[(360-Camera.X_angle) % 360];
         float global_cosX = LookupTables.cos[(360-Camera.X_angle) % 360];
 
-        for(int i = 0; i < 3; i++){
-            updatedVertices[i].set(triangleVertices[i]);
+        for (int i = 0; i < VBO.vertexCount; i++) {
+            updatedVertexBuffer[i].set(VBO.vertexBuffer[i]);
 
-            //将三角形按其所在对象本身坐标系进行变换
-            updatedVertices[i].rotateX(local_sinX, local_cosX);
-            updatedVertices[i].rotateY(local_sinY, local_cosY);
-            updatedVertices[i].rotateZ(local_sinZ, local_cosZ);
-            updatedVertices[i].add(localTranslation);
+            // 将顶点缓冲中的顶点按其所在对象本身坐标系进行变换
+            updatedVertexBuffer[i].rotateX(local_sinX, local_cosX);
+            updatedVertexBuffer[i].rotateY(local_sinY, local_cosY);
+            updatedVertexBuffer[i].rotateZ(local_sinZ, local_cosZ);
+            updatedVertexBuffer[i].add(localTranslation);
 
-
-            //把三角形的原有顶点按视角变换的反方向用来变换
-            updatedVertices[i].subtract(Camera.position);
-            updatedVertices[i].rotateY(global_sinY, global_cosY);
-            updatedVertices[i].rotateX(global_sinX, global_cosX);
-
-            //用投影公式计算顶点在屏幕上的2D坐标
-            vertices2D[i][0] = half_screen_w + updatedVertices[i].x * screenDistance / updatedVertices[i].z;
-            vertices2D[i][1] = half_screen_h - updatedVertices[i].y * screenDistance / updatedVertices[i].z;
-
-            //获得顶点的深度值
-            vertexDepth[i] = 1f/updatedVertices[i].z;
+            // 把顶点缓冲中的顶点按视角变换的反方向用来变换
+            updatedVertexBuffer[i].subtract(Camera.position);
+            updatedVertexBuffer[i].rotateY(global_sinY, global_cosY);
+            updatedVertexBuffer[i].rotateX(global_sinX, global_cosX);
         }
     }
 
@@ -170,6 +188,15 @@ public class Rasterizer {
             return true;
 
         // 测试 3: 判断三角形是否在屏幕外
+        for (int j = 0; j < 3; j++) {
+            // 用投影公式计算顶点在屏幕上的 2D 坐标
+            vertices2D[j][0] = half_screen_w + updatedVertices[j].x * screenDistance / updatedVertices[j].z;
+            vertices2D[j][1] = half_screen_h - updatedVertices[j].y * screenDistance / updatedVertices[j].z;
+
+            // 获得顶点的深度值
+            vertexDepth[j] = 1.0f / updatedVertices[j].z;
+        }
+
         leftMostPosition = screen_w;
         rightMostPosition = -1;
         upperMostPosition = screen_h;
@@ -183,15 +210,14 @@ public class Rasterizer {
 
             // 计算这个三角形的最上边和最下边
             if (vertices2D[i][1] <= upperMostPosition)
-                upperMostPosition = (int) vertices2D[i][1];
+                upperMostPosition = vertices2D[i][1];
             if (vertices2D[i][1] >= lowerMostPosition)
-                lowerMostPosition = (int) vertices2D[i][1];
+                lowerMostPosition = vertices2D[i][1];
         }
 
-        // 如果这个三角形的最左边或最右或最上或最下都没有被重新赋值, 那么这个三角形肯定在屏幕范围之外, 所以不对其进行渲染
-        if(leftMostPosition == screen_w ||  rightMostPosition == -1 || upperMostPosition == screen_h || lowerMostPosition == -1) {
+        // 如果这个三角形的最左边或最右或最上或最下都没有被重新赋值，那么这个三角形肯定在屏幕范围之外，所以不对其进行渲染。
+        if (leftMostPosition == screen_w ||  rightMostPosition == -1 || upperMostPosition == screen_h || lowerMostPosition == -1)
             return true;
-        }
 
         // 判断三角形是否和屏幕的左边和右边相切
         isClippingRightOrLeft = leftMostPosition < 0 || rightMostPosition >= screen_w;
@@ -310,7 +336,7 @@ public class Rasterizer {
                 scanLowerPosition = endY;
 
 
-            // 计算边的梯度,把浮点转换为整数增加运算效率
+            // 计算边的梯度
             float gradient = (vertex2[0] - vertex1[0]) / dy;
             // 计算边的深度变化的梯度
             float dz_y = (depth2-depth1) / dy;
@@ -318,14 +344,20 @@ public class Rasterizer {
             // 用线性插值算出这条边高位的x初始值
             float startX = ((vertex1[0]) +  (startY - vertex1[1]) * gradient);
 
-            for (int y=startY; y<=endY; y++, startX += gradient) {
-                // 把下降边的x值存到扫描线的右边, 反之就放到扫描线的左面
+            // 如果顶点的 x 值小于 0 则认该三角形与屏幕的左侧相切
+            if (startX < 0 ) {
+                isClippingRightOrLeft = true;
+            }
+
+            float tempZ = depth1  - vertex1[1] * dz_y + startY * dz_y;
+            for (int y = startY; y <= endY; y++, startX += gradient, tempZ += dz_y) {
+                // 把下降边的 x 值存到扫描线的右边, 反之就放到扫描线的左面
                 if (downwards) {
                     xRight[y] = (int) startX;
-                    zRight[y] = depth1 + (y - vertex1[1]) * dz_y;
+                    zRight[y] = tempZ;
                 } else {
                     xLeft[y] = (int) startX;
-                    zLeft[y] = depth1 + (y - vertex1[1]) * dz_y;
+                    zLeft[y] = tempZ;
                 }
             }
         }
@@ -359,7 +391,6 @@ public class Rasterizer {
                 if (!xLeftInView) {                                              // 如果左缘比屏幕的左边还要左
                     xLeft[y] = 0;                                                // 就把左缘设在屏幕的最左端
                     zLeft[y] = (zLeft[y] + dz / dx * (0 - x_left));              // 用线性插值算出左缘的深度值
-
                 }
 
                 if (!xRightInView) {                                             // 如果右缘比屏幕的右边还要右

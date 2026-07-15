@@ -40,6 +40,9 @@ public class MainThread extends JFrame implements KeyListener {
     public static long lastDraw;
     public static double thisTime, lastTime;
 
+    //总共渲染的三角形数
+    public static int triangleCount;
+
     public MainThread() {
         // 初始化
         init();
@@ -75,42 +78,57 @@ public class MainThread extends JFrame implements KeyListener {
 
     // 渲染主循环
     public void mainLoop() {
-        // 测试一个正方体
-        float l = 0.5f;
-        Vector3D[] vertices = {
-                new Vector3D(-l, -l, -l),
-                new Vector3D(l, -l, -l),
-                new Vector3D(l, l, -l),
-                new Vector3D(-l, l, -l),
-                new Vector3D(-l, -l, l),
-                new Vector3D(l, -l, l),
-                new Vector3D(l, l, l),
-                new Vector3D(-l, l, l)
-        };
-        int[] indices = {
-                0, 1, 2, 2, 3, 0,        // 前
-                1, 5, 6, 6, 2, 1,        // 右
-                5, 4, 7, 7, 6, 5,        // 后
-                4, 0, 3, 3, 7, 4,        // 左
-                3, 2, 6, 6, 7, 3,        // 上
-                4, 5, 1, 1, 0, 4         // 下
-        };
+        //做一个甜甜圈的场景
+        float R = 1.0f; // radius of the torus
+        float r = 0.3f; // radius of the tube
 
-        Vector3D[][]  cube = new Vector3D[indices.length / 3][];
-        for(int i = 0; i < cube.length; i++) {
-            cube[i] = new Vector3D[] {
-                    vertices[indices[i * 3 + 2]],
-                    vertices[indices[i * 3 + 1]],
-                    vertices[indices[i * 3 + 0]]
-            };
+        int numSides = 256; // number of sides around the tube
+        int numRings = 256; // number of rings around the torus
+
+        Vector3D[] vertices = new Vector3D[numSides * numRings];
+        int[] indices = new int[numSides * numRings * 6];
+
+        int index = 0;
+
+        for (int i = 0; i < numRings; i++) {
+            float u = (float)i / numRings * 2.0f * (float)Math.PI;
+            for (int j = 0; j < numSides; j++) {
+                float v = (float)j / numSides * 2.0f * (float)Math.PI;
+                float x = (R + r * (float)Math.cos(v)) * (float)Math.cos(u);
+                float y = (R + r * (float)Math.cos(v)) * (float)Math.sin(u);
+                float z = r * (float)Math.sin(v);
+                vertices[index++] = new Vector3D(x, y, z);
+            }
         }
-        int[] color = { 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF };
-        int[] color2 = { 0xFF8C00, 0x6A5ACD, 0x008B8B, 0xFFD700, 0x228B22, 0xCD5C5C };
+
+        index = 0;
+
+        for (int i = 0; i < numRings; i++) {
+            for (int j = 0; j < numSides; j++) {
+                int nexti = (i + 1) % numRings;
+                int nextj = (j + 1) % numSides;
+                int a = i * numSides + j;
+                int b = i * numSides + nextj;
+                int c = nexti * numSides + nextj;
+                int d = nexti * numSides + j;
+                indices[index++] = a;
+                indices[index++] = b;
+                indices[index++] = c;
+                indices[index++] = c;
+                indices[index++] = d;
+                indices[index++] = a;
+            }
+        }
+
+        VertexBufferObject torus = new VertexBufferObject(vertices, indices);
 
         while (true) {
-            // 将深度缓冲值归零
-            zBuffer[0] = 0.0f;
-            for (int i = 1; i < screenSize; i <<= 1)
+            // 三角形数归零
+            triangleCount = 0;
+
+            // 把深度缓冲归零
+            zBuffer[0] = 0;
+            for (int i = 1; i < screenSize; i+=i)
                 System.arraycopy(zBuffer, 0, zBuffer, i, Math.min(screenSize - i, i));
 
             // 更新视角
@@ -121,29 +139,25 @@ public class MainThread extends JFrame implements KeyListener {
             for(int i = 1; i < screenSize; i += i)
                 System.arraycopy(screen, 0, screen, i, Math.min(screenSize - i, i));
 
-            // 绘制正方体1
+            Rasterizer.VBO = torus;
+
+            // 画甜甜圈1
+            Rasterizer.triangleColor = 0xCD5C5C;
             Rasterizer.localTranslation.set(0, 0, 4f);
             Rasterizer.renderType = 0;
-            Rasterizer.localRotationY = (frameIndex * 2) % 360;
-            Rasterizer.localRotationX = (frameIndex * 2) % 360;
-            Rasterizer.localRotationZ = (frameIndex * 2) % 360;
+            Rasterizer.localRotationY = (frameIndex*2)%360;
+            Rasterizer.localRotationX = (frameIndex*2)%360;
+            Rasterizer.localRotationZ = (frameIndex*2)%360;
+            Rasterizer.rasterize();
 
-            for(int i =0; i < cube.length; i++) {
-                Rasterizer.triangleVertices = cube[i];
-                Rasterizer.triangleColor =  color[i/2];
-                Rasterizer.rasterize();
-            }
 
-            // 绘制正方体2
+            // 画甜甜圈2
+            Rasterizer.triangleColor = 0x008B8B;
             Rasterizer.localRotationY = 180;
             Rasterizer.localRotationX = 0;
             Rasterizer.localRotationZ = 0;
-            Rasterizer.localTranslation.set(0.7f, 0.3f, 4.2f);;
-            for(int i =0; i < cube.length; i++) {
-                Rasterizer.triangleVertices = cube[i];
-                Rasterizer.triangleColor =  color2[i / 2];
-                Rasterizer.rasterize();
-            }
+            Rasterizer.localTranslation.set(0.7f, 0.3f, 4.2f);
+            Rasterizer.rasterize();
 
             // 更新帧数
             frameIndex++;
